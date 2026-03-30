@@ -1,7 +1,7 @@
-const OpenAI = require('openai');
+const Anthropic = require('@anthropic-ai/sdk');
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 // Store conversation history per user
@@ -26,14 +26,7 @@ module.exports = {
     // Get or create conversation history for this user
     const userId = message.author.id;
     if (!conversations.has(userId)) {
-      conversations.set(userId, [
-        {
-          role: 'system',
-          content: `You are a friendly and helpful Discord bot assistant for the server "${message.guild.name}". 
-          You respond in a casual, friendly tone. Keep responses concise and clear.
-          You can help with questions, have conversations, tell jokes, and assist members.`
-        }
-      ]);
+      conversations.set(userId, []);
     }
 
     const history = conversations.get(userId);
@@ -48,14 +41,16 @@ module.exports = {
     await message.channel.sendTyping();
 
     try {
-      const response = await client.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: history,
+      const response = await anthropic.messages.create({
+        model: 'claude-3-haiku-20240307',
         max_tokens: 500,
-        temperature: 0.7,
+        system: `You are a friendly and helpful Discord bot assistant for the server "${message.guild.name}". 
+        You respond in a casual, friendly tone. Keep responses concise and clear.
+        You can help with questions, have conversations, tell jokes, and assist members.`,
+        messages: history,
       });
 
-      const reply = response.choices[0].message.content;
+      const reply = response.content[0].text;
 
       // Add bot reply to history
       history.push({
@@ -64,8 +59,8 @@ module.exports = {
       });
 
       // Keep conversation history to last 10 messages to save tokens
-      if (history.length > 11) {
-        history.splice(1, 2);
+      if (history.length > 10) {
+        history.splice(0, 2);
       }
 
       // Save updated history
@@ -82,7 +77,7 @@ module.exports = {
       }
 
     } catch (error) {
-      console.error('OpenAI Error:', error);
+      console.error('Claude API Error:', error);
 
       if (error.status === 429) {
         await message.reply('⚠️ I am a little busy right now, please try again in a moment!');
