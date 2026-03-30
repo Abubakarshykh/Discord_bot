@@ -34,9 +34,4 @@ for (const file of eventFiles) {
   }
 }
 
-// Login
-client.once('clientReady', () => {
-  console.log(`✅ Bot is online as ${client.user.tag}`);
-});
-
 client.login(process.env.TOKEN);
