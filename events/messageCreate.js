@@ -1,11 +1,9 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const conversations = new Map();
-
-// Rate limiting — track last message time per user
 const lastMessageTime = new Map();
-const COOLDOWN_SECONDS = 10;
+const COOLDOWN_SECONDS = 5;
 
 module.exports = {
   name: 'messageCreate',
@@ -21,7 +19,7 @@ module.exports = {
       return message.reply('Hey! 👋 Ask me anything, I\'m here to help!');
     }
 
-    // ✅ Cooldown check
+    // Cooldown check
     const userId = message.author.id;
     const now = Date.now();
     const lastTime = lastMessageTime.get(userId) || 0;
@@ -34,33 +32,39 @@ module.exports = {
 
     lastMessageTime.set(userId, now);
 
+    // Get or create conversation history
     if (!conversations.has(userId)) {
-      conversations.set(userId, []);
+      conversations.set(userId, [
+        {
+          role: 'system',
+          content: `You are a friendly and helpful Discord bot assistant for the server "${message.guild.name}". 
+          You respond in a casual, friendly tone. Keep responses concise and clear.
+          You can help with questions, have conversations, tell jokes, and assist members.`
+        }
+      ]);
     }
 
     const history = conversations.get(userId);
+    history.push({ role: 'user', content: userMessage });
 
     await message.channel.sendTyping();
 
     try {
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash',
-        systemInstruction: `You are a friendly and helpful Discord bot assistant for the server "${message.guild.name}". 
-        You respond in a casual, friendly tone. Keep responses concise and clear.
-        You can help with questions, have conversations, tell jokes, and assist members.`,
+      const response = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: history,
+        max_tokens: 500,
+        temperature: 0.7,
       });
 
-      const chat = model.startChat({ history });
-      const result = await chat.sendMessage(userMessage);
-      const reply = result.response.text();
+      const reply = response.choices[0].message.content;
 
       // Save to history
-      history.push({ role: 'user', parts: [{ text: userMessage }] });
-      history.push({ role: 'model', parts: [{ text: reply }] });
+      history.push({ role: 'assistant', content: reply });
 
       // Keep last 10 messages only
-      if (history.length > 10) {
-        history.splice(0, 2);
+      if (history.length > 11) {
+        history.splice(1, 2);
       }
 
       conversations.set(userId, history);
@@ -76,8 +80,7 @@ module.exports = {
       }
 
     } catch (error) {
-      console.error('Gemini API Error:', error);
-
+      console.error('Groq API Error:', error);
       if (error.status === 429) {
         await message.reply('⏳ I am a little busy right now, please wait a moment and try again!');
       } else {
