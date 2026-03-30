@@ -1,8 +1,6 @@
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Store conversation history per user
 const conversations = new Map();
@@ -10,11 +8,9 @@ const conversations = new Map();
 module.exports = {
   name: 'messageCreate',
   async execute(message) {
-    // Ignore bots and messages that don't mention the bot
     if (message.author.bot) return;
     if (!message.mentions.has(message.client.user)) return;
 
-    // Remove the bot mention from the message
     const userMessage = message.content
       .replace(`<@${message.client.user.id}>`, '')
       .trim();
@@ -23,7 +19,6 @@ module.exports = {
       return message.reply('Hey! 👋 Ask me anything, I\'m here to help!');
     }
 
-    // Get or create conversation history for this user
     const userId = message.author.id;
     if (!conversations.has(userId)) {
       conversations.set(userId, []);
@@ -31,39 +26,30 @@ module.exports = {
 
     const history = conversations.get(userId);
 
-    // Add user message to history
-    history.push({
-      role: 'user',
-      content: userMessage
-    });
-
-    // Show typing indicator
     await message.channel.sendTyping();
 
     try {
-      const response = await anthropic.messages.create({
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 500,
-        system: `You are a friendly and helpful Discord bot assistant for the server "${message.guild.name}". 
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+        systemInstruction: `You are a friendly and helpful Discord bot assistant for the server "${message.guild.name}". 
         You respond in a casual, friendly tone. Keep responses concise and clear.
         You can help with questions, have conversations, tell jokes, and assist members.`,
-        messages: history,
       });
 
-      const reply = response.content[0].text;
+      const chat = model.startChat({ history });
 
-      // Add bot reply to history
-      history.push({
-        role: 'assistant',
-        content: reply
-      });
+      const result = await chat.sendMessage(userMessage);
+      const reply = result.response.text();
 
-      // Keep conversation history to last 10 messages to save tokens
+      // Save to history
+      history.push({ role: 'user', parts: [{ text: userMessage }] });
+      history.push({ role: 'model', parts: [{ text: reply }] });
+
+      // Keep last 10 messages only
       if (history.length > 10) {
         history.splice(0, 2);
       }
 
-      // Save updated history
       conversations.set(userId, history);
 
       // Send reply — split if too long
@@ -77,15 +63,8 @@ module.exports = {
       }
 
     } catch (error) {
-      console.error('Claude API Error:', error);
-
-      if (error.status === 429) {
-        await message.reply('⚠️ I am a little busy right now, please try again in a moment!');
-      } else if (error.status === 401) {
-        await message.reply('⚠️ AI service is not configured correctly. Please contact an admin!');
-      } else {
-        await message.reply('❌ Something went wrong. Please try again!');
-      }
+      console.error('Gemini API Error:', error);
+      await message.reply('❌ Something went wrong. Please try again! Gemini');
     }
   },
 };
