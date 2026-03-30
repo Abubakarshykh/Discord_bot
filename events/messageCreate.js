@@ -30,7 +30,7 @@ module.exports = {
 
     try {
       const model = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.0-flash',
         systemInstruction: `You are a friendly and helpful Discord bot assistant for the server "${message.guild.name}". 
         You respond in a casual, friendly tone. Keep responses concise and clear.
         You can help with questions, have conversations, tell jokes, and assist members.`,
