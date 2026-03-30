@@ -1,9 +1,11 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// Store conversation history per user
 const conversations = new Map();
+
+// Rate limiting — track last message time per user
+const lastMessageTime = new Map();
+const COOLDOWN_SECONDS = 10;
 
 module.exports = {
   name: 'messageCreate',
@@ -19,7 +21,19 @@ module.exports = {
       return message.reply('Hey! 👋 Ask me anything, I\'m here to help!');
     }
 
+    // ✅ Cooldown check
     const userId = message.author.id;
+    const now = Date.now();
+    const lastTime = lastMessageTime.get(userId) || 0;
+    const diff = (now - lastTime) / 1000;
+
+    if (diff < COOLDOWN_SECONDS) {
+      const remaining = Math.ceil(COOLDOWN_SECONDS - diff);
+      return message.reply(`⏳ Please wait **${remaining} seconds** before asking again!`);
+    }
+
+    lastMessageTime.set(userId, now);
+
     if (!conversations.has(userId)) {
       conversations.set(userId, []);
     }
@@ -37,7 +51,6 @@ module.exports = {
       });
 
       const chat = model.startChat({ history });
-
       const result = await chat.sendMessage(userMessage);
       const reply = result.response.text();
 
@@ -64,7 +77,12 @@ module.exports = {
 
     } catch (error) {
       console.error('Gemini API Error:', error);
-      await message.reply('❌ Something went wrong. Please try again! Gemini');
+
+      if (error.status === 429) {
+        await message.reply('⏳ I am a little busy right now, please wait a moment and try again!');
+      } else {
+        await message.reply('❌ Something went wrong. Please try again!');
+      }
     }
   },
 };
