@@ -1,14 +1,51 @@
 const Groq = require('groq-sdk');
+const { addXP, xpForNextLevel } = require('../utils/xpManager');
+const { EmbedBuilder } = require('discord.js');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const conversations = new Map();
 const lastMessageTime = new Map();
+const xpCooldown = new Map();
 const COOLDOWN_SECONDS = 5;
+const XP_COOLDOWN = 60000; // 1 minute XP cooldown
 
 module.exports = {
   name: 'messageCreate',
   async execute(message) {
     if (message.author.bot) return;
+
+    // ✅ XP System — runs for every message
+    const xpNow = Date.now();
+    const lastXP = xpCooldown.get(message.author.id) || 0;
+
+    if (xpNow - lastXP > XP_COOLDOWN) {
+      xpCooldown.set(message.author.id, xpNow);
+
+      // Random XP between 15-25
+      const xpAmount = Math.floor(Math.random() * 11) + 15;
+      const result = addXP(message.author.id, message.guild.id, xpAmount);
+
+      // Level up announcement
+      if (result.leveledUp) {
+        const nextLevelXP = xpForNextLevel(result.level);
+
+        const embed = new EmbedBuilder()
+          .setColor('#FFD700')
+          .setTitle('⬆️ Level Up!')
+          .setDescription(`${message.author} just leveled up!`)
+          .addFields(
+            { name: '🏆 New Level', value: `**${result.level}**`, inline: true },
+            { name: '✨ Total XP', value: `**${result.xp}**`, inline: true },
+            { name: '📈 Next Level', value: `**${Math.floor(nextLevelXP)} XP**`, inline: true }
+          )
+          .setThumbnail(message.author.displayAvatarURL())
+          .setTimestamp();
+
+        message.channel.send({ embeds: [embed] });
+      }
+    }
+
+    // ✅ AI Chat — only when bot is mentioned
     if (!message.mentions.has(message.client.user)) return;
 
     const userMessage = message.content
@@ -19,7 +56,6 @@ module.exports = {
       return message.reply('Hey! 👋 Ask me anything, I\'m here to help!');
     }
 
-    // Cooldown check
     const userId = message.author.id;
     const now = Date.now();
     const lastTime = lastMessageTime.get(userId) || 0;
@@ -32,20 +68,12 @@ module.exports = {
 
     lastMessageTime.set(userId, now);
 
-    // Get or create conversation history
     if (!conversations.has(userId)) {
       conversations.set(userId, [
         {
           role: 'system',
-          content: `You are a slay, aesthetic Discord bot for "${message.guild.name}" 💅✨
-Your vibe is gen-z, chaotic-cute, and lowkey iconic.
-Use casual spelling like "soooo", "omg", "ngl", "bestie", "im screaming 😭".
-Use emojis liberally. Be dramatic but helpful.
-Examples of your tone:
-- "omg yesss that's literally SO valid 💀"
-- "ngl im kinda obsessed with this question soooo 👀"
-- "bestie i GOTCHU here's what you need to know ✨"
-Keep answers helpful but make them feel like a text from your funniest friend.`
+          content: `You are a friendly and helpful Discord bot assistant for the server "${message.guild.name}". 
+          You respond in a casual, friendly tone. Keep responses concise and clear.`
         }
       ]);
     }
@@ -64,23 +92,14 @@ Keep answers helpful but make them feel like a text from your funniest friend.`
       });
 
       const reply = response.choices[0].message.content;
-
-      // Save to history
       history.push({ role: 'assistant', content: reply });
 
-      // Keep last 10 messages only
-      if (history.length > 11) {
-        history.splice(1, 2);
-      }
-
+      if (history.length > 11) history.splice(1, 2);
       conversations.set(userId, history);
 
-      // Send reply — split if too long
       if (reply.length > 2000) {
         const chunks = reply.match(/[\s\S]{1,2000}/g);
-        for (const chunk of chunks) {
-          await message.reply(chunk);
-        }
+        for (const chunk of chunks) await message.reply(chunk);
       } else {
         await message.reply(reply);
       }
@@ -88,7 +107,7 @@ Keep answers helpful but make them feel like a text from your funniest friend.`
     } catch (error) {
       console.error('Groq API Error:', error);
       if (error.status === 429) {
-        await message.reply('⏳ I am a little busy right now, please wait a moment and try again!');
+        await message.reply('⏳ I am a little busy right now, please wait a moment!');
       } else {
         await message.reply('❌ Something went wrong. Please try again!');
       }
